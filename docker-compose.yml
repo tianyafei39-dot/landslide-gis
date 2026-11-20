@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    image: landslide-webgis-backend
+    container_name: landslide-backend
+    env_file: backend/.env
+    environment:
+      # SQLite 放挂载目录（WAL 伴生文件 -wal/-shm 需同目录可写）
+      DB_PATH: /app/data/db/sql_app.db
+    volumes:
+      # 示例数据只读挂载（DEMO_DATA_DIR = backend/../data/raw）
+      - ./data/raw:/app/data/raw:ro
+      # 业务数据沿用宿主机现有目录
+      - ./backend/uploads:/app/backend/uploads
+      - ./backend/result:/app/backend/result
+      - ./backend/models:/app/backend/models
+      - ./data/db:/app/data/db
+    # 后端仅在 compose 内网，由 nginx 反代；调试时可临时打开下面两行
+    # ports:
+    #   - "8000:8000"
+    mem_limit: 4g
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    image: landslide-webgis-frontend
+    container_name: landslide-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

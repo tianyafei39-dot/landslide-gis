@@ -1,0 +1,26 @@
+# 滑坡易发性评价 WebGIS 后端镜像
+# Python 版本对齐本地 venv（3.14.x），保证 requirements.txt 精确锁定版本可复现
+# rasterio/geopandas 依赖 manylinux 二进制轮子，slim 镜像直接 pip 可装
+FROM python:3.14-slim
+
+WORKDIR /app
+
+# 依赖单独一层（代码改动不重装依赖）；国内网络走清华 PyPI 镜像
+COPY backend/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r /app/requirements.txt
+
+# slim 镜像缺 rasterio/GDAL 运行时动态库
+RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 后端代码（数据目录由 docker-compose 卷挂载，不进镜像）
+COPY backend/ /app/backend/
+
+WORKDIR /app/backend
+
+ENV DB_PATH=/app/data/db/sql_app.db
+
+EXPOSE 8000
+
+# 单进程 uvicorn：训练并发由 TRAIN_MAX_CONCURRENT 信号量闸门控制（默认 2）
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

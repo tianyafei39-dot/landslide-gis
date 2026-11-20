@@ -1,0 +1,28 @@
+# 构建上下文排除（context 为项目根目录）
+.git
+.workbuddy
+.screenshots
+docs
+附件
+*.md
+说明.txt
+custom_model_test.joblib
+docker-compose.yml
+
+# 前端：容器内 npm ci 重新构建
+frontend/node_modules
+frontend/dist
+
+# 后端：venv/缓存/数据（数据走卷挂载，不进镜像）
+backend/venv
+backend/__pycache__
+**/__pycache__
+backend/uploads
+backend/result
+backend/models
+backend/sql_app.db
+backend/sql_app.db-wal
+backend/sql_app.db-shm
+
+# 示例数据不进镜像（只读挂载）
+data
