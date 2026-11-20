@@ -1,3 +1,2 @@
-# 真实空间数据经 Git LFS 托管（克隆前需 git lfs install）
-data/raw/** filter=lfs diff=lfs merge=lfs -text
+# data/raw 以普通 git 对象入库（不使用 Git LFS）
 data/raw/** !text !filter !merge !diff

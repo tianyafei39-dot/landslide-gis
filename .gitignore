@@ -21,7 +21,7 @@ dist/
 .env.local
 
 # ===== 业务数据目录 =====
-# data 下只有 raw（真实空间数据）入库——经 Git LFS 托管；data/db 等运行产物不入
+# data 下只有 raw（真实空间数据）入库；data/db 等运行产物不入
 data/*
 !data/raw/
 models/

@@ -8,7 +8,7 @@
 - **方式一（推荐）：Docker 一键部署** —— docker-compose 双容器（backend + nginx frontend），浏览器访问 <http://localhost:8080>
 - **方式二：本地开发双进程** —— Vite 前端（5173）+ FastAPI 后端（8000），前端代理 `/api`、`/static` 无跨域；改代码即时热更新
 
-真实空间数据见 `data/raw/`（DEM/Slope/NDVI 等多因子栅格 + 96 个滑坡灾害点 + 研究区边界，经 **Git LFS** 托管，克隆前请先 `git lfs install`），完整工程文档见 `docs/`（目录见文末）。
+真实空间数据见 `data/raw/`（DEM/Slope/NDVI 等多因子栅格 + 96 个滑坡灾害点 + 研究区边界，随仓库直接入库，克隆即用），完整工程文档见 `docs/`（目录见文末）。
 
 ---
 
