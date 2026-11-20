@@ -6,9 +6,14 @@ from dataclasses import dataclass, field
 from typing import Dict, Any
 from model import run_model_train
 from result_export import build_web_bundle
+from config import TRAIN_MAX_CONCURRENT
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULT_DIR = os.path.join(BASE_DIR, "result")
+
+# 训练并发闸门：同时最多 TRAIN_MAX_CONCURRENT 个训练在跑，其余排队等待，
+# 防止多个训练抢 CPU/内存把整机拖垮（读接口不受影响）
+_train_slots = threading.Semaphore(max(1, TRAIN_MAX_CONCURRENT))
 
 
 @dataclass
@@ -17,6 +22,8 @@ class TrainTask:
     status: str       # waiting / running / finished / failed
     progress: float   # 0~100
     msg: str
+    user_id: int = 0  # 记录发起人的ID
+    params: dict = None  # 保存前端传来的超参数
     result_raster_path: str = ""
     metrics: Dict[str, float] = None
     result_bundle: Dict[str, Any] = field(default=None)
@@ -25,13 +32,15 @@ class TaskManager:
     def __init__(self):
         self.tasks: Dict[str, TrainTask] = {}
 
-    def create_task(self) -> str:
+    def create_task(self, user_id: int, params: dict = None) -> str:
         tid = str(uuid.uuid4())
         self.tasks[tid] = TrainTask(
             task_id=tid,
             status="waiting",
             progress=0.0,
-            msg="任务已创建，等待开始"
+            msg="任务已创建，等待开始",
+            user_id=user_id,
+            params=params  # 👈 把 params 存进去
         )
         return tid
 
@@ -41,6 +50,7 @@ class TaskManager:
             return {"status": "not_found", "msg": "任务不存在"}
         return {
             "task_id": t.task_id,
+            "user_id": t.user_id,
             "status": t.status,
             "progress": t.progress,
             "msg": t.msg,
@@ -53,6 +63,7 @@ class TaskManager:
         return [
             {
                 "task_id": t.task_id,
+                "user_id": t.user_id,
                 "status": t.status,
                 "progress": t.progress,
                 "msg": t.msg,
@@ -89,8 +100,27 @@ def _progress_msg(p: float) -> str:
     return "训练完成"
 
 
-def _train_worker(task_id: str, factor_files, sample_shp, model_type, study_area_shp=None):
+def _queue_ahead(task_id: str) -> int:
+    """统计排在本任务前面的等待中任务数（用于排队提示）"""
+    ahead = 0
+    for tid, t in task_manager.tasks.items():
+        if tid == task_id:
+            break
+        if t.status == "waiting":
+            ahead += 1
+    return ahead
+
+
+def _train_worker(task_id: str, factor_files, sample_shp, model_type, study_area_shp=None, custom_model_path=None, pipeline_config=None):
     task = task_manager.tasks[task_id]
+
+    # ---------- 并发闸门：排队等待空闲训练槽位 ----------
+    while True:
+        if _train_slots.acquire(timeout=1.0):  # 1s 内抢到槽位即开跑
+            break
+        ahead = _queue_ahead(task_id)          # 没抢到则刷新排队提示后重试
+        task.msg = f"排队中（前方 {ahead} 个任务），等待空闲训练资源"
+
     task.status = "running"
     task.msg = "开始GIS数据预处理"
 
@@ -105,14 +135,16 @@ def _train_worker(task_id: str, factor_files, sample_shp, model_type, study_area
             study_area_shp=study_area_shp,
             model_type=model_type,
             progress_callback=on_progress,
+            custom_model_path=custom_model_path, # 透传自定义模型
+            pipeline_config=pipeline_config,     #  透传Pipeline配置
+            params=task.params or {},            # 👈 显式按 params 字典传递（**解包会被 **kwargs 吞掉导致超参数失效）
         )
-
-        # 每个任务保留独立结果栅格，避免并发任务互相覆盖
         task_tif = os.path.join(RESULT_DIR, f"landslide_susceptibility_{task_id}.tif")
         shutil.copy2(result["raster_path"], task_tif)
         task.result_raster_path = task_tif
         task.metrics = result["metrics"]
-
+        if "feature_importances" in result:
+            task.metrics["feature_importances"] = result["feature_importances"]
         task.progress = 95
         task.msg = "重投影易发性栅格并生成 Web 渲染图层"
         task.result_bundle = build_web_bundle(
@@ -127,12 +159,14 @@ def _train_worker(task_id: str, factor_files, sample_shp, model_type, study_area
         traceback.print_exc()
         task.status = "failed"
         task.msg = f"训练失败：{str(e)}"
+    finally:
+        _train_slots.release()  # 训练结束（成功/失败）都释放槽位，让排队任务开跑
 
-def start_train_task(factor_files, sample_shp, model_type, study_area_shp=None):
-    tid = task_manager.create_task()
+def start_train_task(factor_files, sample_shp, model_type, study_area_shp=None, user_id: int = 0, custom_model_path=None, pipeline_config=None, params=None):
+    tid = task_manager.create_task(user_id, params) # 👈 把 params 传进去
     th = threading.Thread(
         target=_train_worker,
-        args=(tid, factor_files, sample_shp, model_type, study_area_shp),
+        args=(tid, factor_files, sample_shp, model_type, study_area_shp, custom_model_path, pipeline_config), # 👈 多传两个参数
         daemon=True
     )
     th.start()

@@ -1,11 +1,42 @@
-fastapi>=0.104.1
-uvicorn[standard]>=0.24.0
-rasterio>=1.3.9
-geopandas>=0.14.0
-scikit-learn>=1.3.2
-numpy>=1.26.0
-joblib>=1.3.2
-pandas>=2.1.0
-shapely>=2.0.2
-pillow>=10.0.0
-python-multipart>=0.0.6
+# ============================================================
+# 滑坡易发性评价 WebGIS 平台 —— Python 依赖清单
+# 版本锁定基准：backend/venv 实测通过环境（2026-11-18 验证）
+# 说明：
+#   1. 全部精确锁定（==），保证 Docker 镜像构建与本地环境可复现；
+#   2. bcrypt 必须 <4.1（实测 4.0.1）——passlib 1.7.4 与 bcrypt 4.1+
+#      的 CryptContext 不兼容（AI错误案例集 EC-04），勿单独升级；
+#   3. passlib 不带 [bcrypt] extra，避免解析器拉新版 bcrypt 冲掉上面的约束；
+#   4. scikit-learn 版本需训练/加载两侧一致，自定义模型跨版本加载会告警。
+# ============================================================
+
+# --- Web 框架与服务 ---
+fastapi==0.143.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.0
+python-multipart==0.0.32
+
+# --- 认证与安全 ---
+passlib==1.7.4
+bcrypt==4.0.1          # 必须 <4.1（EC-04），与 passlib 1.7.4 配套
+PyJWT==2.15.1
+
+# --- 数据库 ---
+SQLAlchemy==2.1.8
+
+# --- 配置 ---
+python-dotenv==1.2.4
+
+# --- GIS 空间处理（manylinux 轮子，无需源码编译 GDAL） ---
+rasterio==1.5.2
+geopandas==1.2.0
+shapely==2.2.0
+pyproj==3.8.0          # gis_preprocess.py 直接 import
+
+# --- 机器学习与数据处理 ---
+scikit-learn==1.9.1
+joblib==1.6.0
+numpy==2.5.3
+pandas==3.0.6
+
+# --- 图像渲染（分级渲染 PNG） ---
+pillow==13.0.0

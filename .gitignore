@@ -6,6 +6,8 @@ __pycache__/
 venv/
 env/
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 
@@ -18,8 +20,10 @@ dist/
 .env
 .env.local
 
-# ===== 业务数据目录（根据你的截图，这些文件通常很大，不能传） =====
-data/
+# ===== 业务数据目录 =====
+# data 下只有 raw（真实空间数据）入库——经 Git LFS 托管；data/db 等运行产物不入
+data/*
+!data/raw/
 models/
 result/
 uploads/
@@ -32,3 +36,8 @@ uploads/
 Thumbs.db
 .vscode/
 .idea/
+
+# ===== 工具/构建缓存与内部工作区 =====
+.workbuddy/
+docs/.build/
+output/

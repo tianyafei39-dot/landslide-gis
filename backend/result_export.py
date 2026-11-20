@@ -30,7 +30,6 @@ RESULT_DIR = os.path.join(BASE_DIR, "result")
 os.makedirs(RESULT_DIR, exist_ok=True)
 
 WGS84 = "EPSG:4326"
-WEB_MERCATOR = "EPSG:3857"
 MAX_PNG_WIDTH = 1600
 
 # 5 级易发性分级（固定阈值，保证分级范围不偏移）
@@ -110,22 +109,25 @@ def _colorize(arr):
     return rgba, valid
 
 
-def _reproject_to_mercator(src, src_arr):
-    """投影栅格 -> Web Mercator 网格，返回 (重投影数组, WGS84边界, (宽,高))"""
-    native_transform, native_w, native_h = calculate_default_transform(
-        src.crs, WEB_MERCATOR, src.width, src.height, *src.bounds
-    )
-    if native_w > MAX_PNG_WIDTH:
-        scale = MAX_PNG_WIDTH / float(native_w)
-        dst_width = MAX_PNG_WIDTH
-        dst_height = max(1, int(round(native_h * scale)))
-    else:
-        dst_width, dst_height = native_w, native_h
+def _reproject_to_wgs84(src, src_arr):
+    """投影栅格 -> WGS84(EPSG:4326) 等经纬网格，返回 (重投影数组, (w,s,e,n), (宽,高))。
 
+    输出 PNG 的每行对应等纬度、每列对应等经度，行列号与经纬度严格线性关系，
+    Leaflet ImageOverlay 在经纬度 bounds 内线性贴图时与数据同构，
+    与同样为 EPSG:4326 的灾害点 GeoJSON 像素级对齐，不存在墨卡托非线性拉伸。
+    """
     dst_transform, dst_w, dst_h = calculate_default_transform(
-        src.crs, WEB_MERCATOR, src.width, src.height, *src.bounds,
-        dst_width=dst_width, dst_height=dst_height,
+        src.crs, WGS84, src.width, src.height, *src.bounds
     )
+    if dst_w > MAX_PNG_WIDTH:
+        scale = MAX_PNG_WIDTH / float(dst_w)
+        dst_w = MAX_PNG_WIDTH
+        dst_h = max(1, int(round(dst_h * scale)))
+        dst_transform, dst_w, dst_h = calculate_default_transform(
+            src.crs, WGS84, src.width, src.height, *src.bounds,
+            dst_width=dst_w, dst_height=dst_h,
+        )
+
     dst_arr = np.full((dst_h, dst_w), np.nan, dtype=np.float32)
     reproject(
         source=src_arr,
@@ -133,15 +135,13 @@ def _reproject_to_mercator(src, src_arr):
         src_transform=src.transform,
         src_crs=src.crs,
         dst_transform=dst_transform,
-        dst_crs=WEB_MERCATOR,
+        dst_crs=WGS84,
         resampling=Resampling.nearest,
         src_nodata=np.nan,
         dst_nodata=np.nan,
     )
-    m_west, m_south, m_east, m_north = array_bounds(dst_h, dst_w, dst_transform)
-    west, south, east, north = transform_bounds(
-        WEB_MERCATOR, WGS84, m_west, m_south, m_east, m_north, densify_pts=21
-    )
+    # dst 本身就是经纬度网格，边界直接取，不再经过任何二次投影/ densify
+    west, south, east, north = array_bounds(dst_h, dst_w, dst_transform)
     return dst_arr, (west, south, east, north), (dst_w, dst_h)
 
 
@@ -176,9 +176,9 @@ def export_web_overlay(task_id, tif_path):
             src_arr = np.where(src_arr == src.nodata, np.nan, src_arr)
         src_arr[~np.isfinite(src_arr)] = np.nan
 
-        # 直接重投影到 Web Mercator：Leaflet ImageOverlay 在墨卡托平面上线性贴图，
-        # 这样像素与底图严格对齐，避免“先转经纬度再拉伸”造成的南北向偏移
-        dst_arr, (west, south, east, north), (dst_w, dst_h) = _reproject_to_mercator(src, src_arr)
+        # 重投影到 WGS84 等经纬网格：PNG 行列与经纬度线性对应，
+        # Leaflet ImageOverlay 线性贴图时与灾害点 GeoJSON(4326) 严格对齐
+        dst_arr, (west, south, east, north), (dst_w, dst_h) = _reproject_to_wgs84(src, src_arr)
         rgba, valid = _colorize(dst_arr)
 
         png_name = f"susceptibility_{task_id}.png"
@@ -247,7 +247,7 @@ def export_factor_overlay(factor_path):
         if src.nodata is not None and np.isfinite(src.nodata):
             arr = np.where(arr == src.nodata, np.nan, arr)
         arr[~np.isfinite(arr)] = np.nan
-        dst_arr, (west, south, east, north), (dst_w, dst_h) = _reproject_to_mercator(src, arr)
+        dst_arr, (west, south, east, north), (dst_w, dst_h) = _reproject_to_wgs84(src, arr)
 
         rgba = _colorize_factor(dst_arr)
         digest = hashlib.md5(os.path.abspath(factor_path).encode("utf-8")).hexdigest()[:10]
@@ -293,15 +293,20 @@ def export_vectors(task_id, sample_shp=None, study_area_shp=None):
 
     if sample_shp and os.path.exists(sample_shp):
         gdf_pts = gpd.read_file(sample_shp)
+        if gdf_pts.crs is None:
+            raise ValueError(f"灾害点矢量缺少坐标系（.prj）定义，无法转换 WGS84：{sample_shp}")
         if not gdf_pts.empty:
-            gdf_pts = gdf_pts.to_crs(WGS84)
+            # 显式转到 EPSG:4326，保证与栅格 PNG 的经纬度 bounds 同一坐标系
+            gdf_pts = gdf_pts.to_crs(epsg=4326)
             path = _write_geojson(gdf_pts, f"points_{task_id}.geojson")
             points = {"url": f"/static/{os.path.basename(path)}", "count": int(len(gdf_pts))}
 
     if study_area_shp and os.path.exists(study_area_shp):
         gdf_area = gpd.read_file(study_area_shp)
+        if gdf_area.crs is None:
+            raise ValueError(f"研究区矢量缺少坐标系（.prj）定义，无法转换 WGS84：{study_area_shp}")
         if not gdf_area.empty:
-            gdf_area = gdf_area.to_crs(WGS84)
+            gdf_area = gdf_area.to_crs(epsg=4326)
             path = _write_geojson(gdf_area, f"study_area_{task_id}.geojson")
             study = {"url": f"/static/{os.path.basename(path)}", "count": int(len(gdf_area))}
 
