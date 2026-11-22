@@ -79,7 +79,7 @@
 | 状态码 | 含义 | 典型场景 |
 |---|---|---|
 | 200 | 成功 | — |
-| 400 | 请求/数据错误 | 文件格式错误、栅格未对齐、任务未完成、zip 损坏 |
+| 400 | 请求/数据错误 | 文件格式错误、栅格未对齐、任务未完成、shp 缺边车文件/解析失败 |
 | 401 | 未认证 | 令牌缺失/过期/无效、登录失败 |
 | 403 | 越权 | 访问他人任务/文件、删除 uploads 外文件 |
 | 404 | 不存在 | 任务不存在、文件不存在 |
@@ -246,27 +246,29 @@
 
 **成功响应（200）：** 与 4.1 相同结构（files 不含 from_zip）。
 
-### 4.3 上传 Shapefile（zip 包）
+### 4.3 上传 Shapefile（全套文件）
 
 `POST /api/upload/shapefile`（multipart/form-data）
 
-**表单字段：** `file`（file，必填，.zip 格式，内含 shp/dbf/shx/prj 等）
+**表单字段：** `files`（file[]，必填，一次上传 .shp/.shx/.dbf/.prj 等全套文件，字段名 `files`）
 
-**处理逻辑：** 校验 .zip 后缀 → 解压 → 抹平单层子目录 → 全目录搜索 .shp。
+**处理逻辑：** 全部文件保存至 `uploads/{user_id}/{uuid}/` → 定位 .shp 主文件（须存在）→ 校验同名 .prj 投影文件 → geopandas 解析并强制转 WGS84，返回图层边界与 GeoJSON 预览。
 
 **成功响应（200）：**
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| shp_path | string | 解压后 .shp 的绝对路径 |
-| upload_dir | string | 解压目录 |
-| msg | string | "Shapefile 上传并解压成功" |
+| shp_path | string | .shp 的绝对路径 |
+| bounds | object | 图层范围 {south, west, north, east}（WGS84） |
+| geojson | object | 预览用 FeatureCollection（含属性字段） |
+| msg | string | "Shapefile 解析成功" |
 
 ```json
 {
   "shp_path": "D:\\...\\uploads\\1\\8c1d...\\disaster-site.shp",
-  "upload_dir": "D:\\...\\uploads\\1\\8c1d...",
-  "msg": "Shapefile 上传并解压成功"
+  "bounds": {"south": 30.1, "west": 118.9, "north": 30.9, "east": 119.7},
+  "geojson": {"type": "FeatureCollection", "features": []},
+  "msg": "Shapefile 解析成功"
 }
 ```
 
@@ -274,10 +276,9 @@
 
 | 状态码 | detail | 场景 |
 |---|---|---|
-| 400 | 请上传 ZIP 格式的 Shapefile 压缩包 | 后缀非 .zip |
-| 400 | ZIP 文件损坏或格式不正确 | 解压失败 |
-| 400 | ZIP 中未找到 .shp 文件 | 无 shp |
-| 400 | ZIP 中有多个 .shp 文件，请只放一个：[…] | 多 shp |
+| 400 | 未找到 .shp 文件 | 文件组中无 .shp 主文件 |
+| 400 | 缺少 .prj 投影文件，无法定位 | .shp 旁无同名 .prj |
+| 400 | 解析失败：… | geopandas 读取失败（文件损坏或边车不配套） |
 
 ---
 

@@ -152,7 +152,7 @@ cd ..\backend
 |---|---|---|
 | `/api/auth/register`、`/api/auth/login`、`/api/auth/me` | POST/GET | 注册、登录（返回 JWT）、当前用户信息 |
 | `/api/users`、`/api/users/{user_id}` | GET/PATCH/DELETE | 用户管理（仅 admin） |
-| `/api/upload`、`/api/upload/batch`、`/api/upload/shapefile` | POST | 上传栅格 / 批量文件 / shp 的 zip 包（按用户隔离目录） |
+| `/api/upload`、`/api/upload/batch`、`/api/upload/shapefile` | POST | 上传栅格 / 批量文件 / shp 全套文件（按用户隔离目录） |
 | `/api/model/upload` | POST | 上传自定义模型（joblib） |
 | `/api/factors/inspect` | POST | 因子投影与网格对齐校验 |
 | `/api/factors/overlays` | POST | 因子栅格渲染为地图叠加 PNG |
