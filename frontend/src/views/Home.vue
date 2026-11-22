@@ -230,6 +230,7 @@
               <h3>因子特征重要性</h3>
               <p class="card-desc">各空间因子对滑坡模型的贡献度</p>
             </div>
+            <el-button size="small" text type="primary" style="margin-left: auto" @click="downloadChart">下载图片</el-button>
           </div>
           <!-- 图表容器，高度必须写死，否则 echarts 渲染不出来 -->
           <div ref="chartRef" style="width: 100%; height: 240px;"></div>
@@ -1408,8 +1409,9 @@ watch(() => metrics.value?.feature_importances, (newVal) => {
     
     const option = {
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      grid: { left: '3%', right: '8%', bottom: '3%', top: '5%', containLabel: true },
-      xAxis: { type: 'value', max: 'dataMax' },
+      // right 留 64px 给条形末端数值标签；x 轴留 15% 空白，最长条的标签不会顶到画布边缘被裁
+      grid: { left: '3%', right: 64, bottom: '3%', top: '5%', containLabel: true },
+      xAxis: { type: 'value', max: (v) => v.max * 1.15 },
       yAxis: { type: 'category', data: names, axisLabel: { fontSize: 11 } },
       series: [
         {
@@ -1437,6 +1439,18 @@ watch(() => metrics.value?.feature_importances, (newVal) => {
     myChart.setOption(option)
   }, 200)
 }, { deep: true })
+
+/* 下载特征重要性图表为 PNG */
+function downloadChart() {
+  if (!myChart) return
+  const url = myChart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#ffffff' })
+  const a = document.createElement('a')
+  a.href = url
+  const d = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  a.download = `因子特征重要性_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.png`
+  a.click()
+}
 
 /* ---------------------------- 生命周期 ---------------------------- */
 onMounted(() => {
